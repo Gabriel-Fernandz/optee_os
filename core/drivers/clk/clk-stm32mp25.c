@@ -1125,8 +1125,7 @@ static int clk_stm32_parse_pll_fdt(const void *fdt, int subnode,
 	if (subnode_pll < 0)
 		return -FDT_ERR_NOTFOUND;
 
-	if (fdt_read_uint32_array(fdt, subnode_pll, "cfg", pll->cfg,
-				  PLLCFG_NB) != 0)
+	if (fdt_read_uint32_array(fdt, subnode_pll, "cfg", pll->cfg, PLLCFG_NB))
 		panic("cfg property is mandatory");
 
 	err = fdt_read_uint32_array(fdt, subnode_pll, "csg", pll->csg,
@@ -1137,7 +1136,7 @@ static int clk_stm32_parse_pll_fdt(const void *fdt, int subnode,
 	if (err == -FDT_ERR_NOTFOUND)
 		err = 0;
 
-	if (err != 0)
+	if (err)
 		return err;
 
 	pll->enabled = true;
@@ -1234,33 +1233,33 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
 	int err = 0;
 
 	err = stm32_clk_parse_fdt_all_oscillator(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = stm32_clk_parse_fdt_all_pll(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = stm32_clk_parse_fdt_all_opp(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,busclk",
 					  pdata->busclk,
 					  &pdata->nbusclk);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,flexgen",
 					  pdata->flexgen,
 					  &pdata->nflexgen);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,kerclk",
 					  pdata->kernelclk,
 					  &pdata->nkernelclk);
-	if (err != 0)
+	if (err)
 		return err;
 
 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd", 0);
@@ -1436,7 +1435,7 @@ static void clk_stm32_pll_config_output(struct clk_stm32_priv *priv,
 	int sel = (pllsrc & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
 	unsigned long refclk = clk_stm32_pll_get_oscillator_rate(sel);
 
-	if (fracv == 0) {
+	if (!fracv) {
 		/* PLL in integer mode */
 
 		/*
@@ -1479,7 +1478,7 @@ static void clk_stm32_pll_config_output(struct clk_stm32_priv *priv,
 	io_clrsetbits32(pllxcfgr7, RCC_PLLxCFGR7_POSTDIV2_MASK,
 			pllcfg[POSTDIV2] & RCC_PLLxCFGR7_POSTDIV2_MASK);
 
-	if (pllcfg[POSTDIV1] == 0 || pllcfg[POSTDIV2] == 0) {
+	if (!pllcfg[POSTDIV1] || !pllcfg[POSTDIV2]) {
 		/* Bypass mode */
 		io_setbits32(pllxcfgr4, RCC_PLLxCFGR4_BYPASS);
 		io_clrbits32(pllxcfgr4, RCC_PLLxCFGR4_FOUTPOSTDIVEN);
@@ -1504,7 +1503,7 @@ static void clk_stm32_pll_config_csg(struct clk_stm32_priv *priv,
 			SHIFT_U32(csg[SPREAD], RCC_PLLxCFGR5_SPREAD_SHIFT) &
 			RCC_PLLxCFGR5_SPREAD_MASK);
 
-	if (csg[DOWNSPREAD] != 0)
+	if (csg[DOWNSPREAD])
 		io_setbits32(pllxcfgr3, RCC_PLLxCFGR3_DOWNSPREAD);
 	else
 		io_clrbits32(pllxcfgr3, RCC_PLLxCFGR3_DOWNSPREAD);
@@ -1743,26 +1742,26 @@ static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
 {
 	uintptr_t rcc_base = stm32_rcc_base();
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_PREDIV0CFGR + (0x4 * channel),
 			RCC_PREDIV0CFGR_PREDIV0_MASK, prediv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
 			RCC_FINDIV0CFGR_FINDIV0_MASK,
 			findiv);
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
-	if (wait_xbar_sts(channel) != 0)
+	if (wait_xbar_sts(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_XBAR0CFGR + (0x4 * channel),
@@ -1772,7 +1771,7 @@ static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
 	io_setbits32(rcc_base + RCC_XBAR0CFGR + (0x4 * channel),
 		     RCC_XBAR0CFGR_XBAR0EN);
 
-	if (wait_xbar_sts(channel) != 0)
+	if (wait_xbar_sts(channel))
 		panic();
 }
 
@@ -1930,7 +1929,7 @@ static int stm32_clk_bus_configure(struct clk_stm32_priv *priv)
 		int ret = 0;
 
 		ret = stm32_clk_configure(priv, pdata->busclk[i]);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 
@@ -1946,7 +1945,7 @@ static int stm32_clk_kernel_configure(struct clk_stm32_priv *priv)
 		int ret = 0;
 
 		ret = stm32_clk_configure(priv, pdata->kernelclk[i]);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 
@@ -2103,7 +2102,7 @@ static unsigned long clk_stm32_pll1_get_rate(struct clk *clk __unused,
 	postdiv2 = (reg & A35SS_SSC_PLL_FREQ2_POSTDIV2_MASK) >>
 		   A35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT;
 
-	if (postdiv1 == 0 || postdiv2 == 0)
+	if (!postdiv1 || postdiv2)
 		dfout = prate;
 	else
 		dfout = clk_get_pll1_fvco_rate(prate) / (postdiv1 * postdiv2);
@@ -2331,7 +2330,7 @@ static unsigned long clk_stm32_flexgen_get_rate(struct clk *clk __unused,
 	findiv = io_read32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel)) &
 		RCC_FINDIV0CFGR_FINDIV0_MASK;
 
-	if (freq == 0)
+	if (!freq)
 		return 0;
 
 	switch (prediv) {
@@ -2382,7 +2381,7 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
 		freq = UDIV_ROUND_NEAREST((uint64_t)prate, pre_div[i]);
 		ratio = UDIV_ROUND_NEAREST((uint64_t)freq, rate);
 
-		if (ratio == 0)
+		if (!ratio)
 			ratio = 1;
 		else if (ratio > 64)
 			ratio = 64;
@@ -2398,7 +2397,7 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
 			*prediv = pre_val[i];
 			*findiv = ratio - 1;
 
-			if (diff == 0)
+			if (!diff)
 				break;
 		}
 	}
@@ -2418,24 +2417,24 @@ static TEE_Result clk_stm32_flexgen_set_rate(struct clk *clk,
 
 	clk_stm32_flexgen_get_round_rate(rate, parent_rate, &prediv, &findiv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_PREDIV0CFGR + (0x4 * channel),
 			RCC_PREDIV0CFGR_PREDIV0_MASK,
 			prediv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
 			RCC_FINDIV0CFGR_FINDIV0_MASK,
 			findiv);
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	return TEE_SUCCESS;
@@ -2521,7 +2520,7 @@ static unsigned long ck_timer_get_rate_ops(struct clk *clk, unsigned long prate)
 
 	timpre = io_read32(rcc_base + cfg->timpre) & TIM_PRE_MASK;
 
-	if (prescaler == 0)
+	if (!prescaler)
 		return prate;
 
 	return prate * (timpre + 1) * 2;
