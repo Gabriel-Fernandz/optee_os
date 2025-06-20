@@ -27,6 +27,9 @@ static TEE_Result stm32_reset_update(struct rstctrl *rstctrl, bool status,
 
 	data = to_stm32_rstline(rstctrl)->data;
 
+	if (id >= data->nb_lines)
+		return TEE_ERROR_BAD_PARAMETERS;
+
 	rst_line = data->rst_lines[id];
 	if (!rst_line)
 		return TEE_SUCCESS;
