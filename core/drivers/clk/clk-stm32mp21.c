@@ -155,20 +155,20 @@ enum pll_csg {
 };
 
 struct stm32_pll_dt_cfg {
-	bool enabled;
 	uint32_t cfg[PLLCFG_NB];
 	uint32_t csg[PLLCSG_NB];
 	uint32_t frac;
-	bool csg_enabled;
 	uint32_t src;
+	bool enabled;
+	bool csg_enabled;
 };
 
 struct stm32_osci_dt_cfg {
 	unsigned long freq;
+	uint32_t drive;
 	bool bypass;
 	bool digbyp;
 	bool css;
-	uint32_t drive;
 };
 
 struct stm32_clk_opp_cfg {
@@ -729,7 +729,6 @@ static bool stm32_rcc_has_access_by_id(int id)
 {
 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
 	uintptr_t rcc_base = priv->base;
-	unsigned int master = RIF_CID1;
 	uint32_t cid_reg_value = 0;
 
 	cid_reg_value = io_read32(rcc_base + RCC_R0CIDCFGR + 0x8 * id);
@@ -743,14 +742,14 @@ static bool stm32_rcc_has_access_by_id(int id)
 	 */
 	if (cid_reg_value & RCC_CIDCFGR_SEM_EN) {
 		/* Static CID is irrelevant if semaphore mode */
-		return cid_reg_value & BIT(master + RCC_SEMWL_SHIFT);
+		return cid_reg_value & BIT(RIF_CID1 + RCC_SEMWL_SHIFT);
 	}
 
 	/*
 	 * Coherency check with the CID configuration
 	 */
 	if (((cid_reg_value & RCC_CIDCFGR_SCID_MASK) >>
-	     RCC_CIDCFGR_SCID_SHIFT) != master)
+	     RCC_CIDCFGR_SCID_SHIFT) != RIF_CID1)
 		return false;
 
 	return true;
@@ -1107,8 +1106,7 @@ static int clk_stm32_parse_pll_fdt(const void *fdt, int subnode,
 	if (subnode_pll < 0)
 		return -FDT_ERR_NOTFOUND;
 
-	if (fdt_read_uint32_array(fdt, subnode_pll, "cfg", pll->cfg,
-				  PLLCFG_NB) != 0)
+	if (fdt_read_uint32_array(fdt, subnode_pll, "cfg", pll->cfg, PLLCFG_NB))
 		panic("cfg property is mandatory");
 
 	err = fdt_read_uint32_array(fdt, subnode_pll, "csg", pll->csg,
@@ -1119,7 +1117,7 @@ static int clk_stm32_parse_pll_fdt(const void *fdt, int subnode,
 	if (err == -FDT_ERR_NOTFOUND)
 		err = 0;
 
-	if (err != 0)
+	if (err)
 		return err;
 
 	pll->enabled = true;
@@ -1217,33 +1215,33 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
 	int err = 0;
 
 	err = stm32_clk_parse_fdt_all_oscillator(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = stm32_clk_parse_fdt_all_pll(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = stm32_clk_parse_fdt_all_opp(fdt, node, pdata);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,busclk",
 					  pdata->busclk,
 					  &pdata->nbusclk);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,flexgen",
 					  pdata->flexgen,
 					  &pdata->nflexgen);
-	if (err != 0)
+	if (err)
 		return err;
 
 	err = clk_stm32_parse_fdt_by_name(fdt, node, "st,kerclk",
 					  pdata->kernelclk,
 					  &pdata->nkernelclk);
-	if (err != 0)
+	if (err)
 		return err;
 
 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd", 0);
@@ -1419,7 +1417,7 @@ static int clk_stm32_pll_config_output(struct clk_stm32_priv *priv,
 	int sel = (pllsrc & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
 	unsigned long refclk = clk_stm32_pll_get_oscillator_rate(sel);
 
-	if (fracv == 0) {
+	if (!fracv) {
 		/* PLL in integer mode */
 
 		/*
@@ -1462,7 +1460,7 @@ static int clk_stm32_pll_config_output(struct clk_stm32_priv *priv,
 	io_clrsetbits32(pllxcfgr7, RCC_PLLxCFGR7_POSTDIV2_MASK,
 			pllcfg[POSTDIV2] & RCC_PLLxCFGR7_POSTDIV2_MASK);
 
-	if (pllcfg[POSTDIV1] == 0 || pllcfg[POSTDIV2] == 0) {
+	if (!pllcfg[POSTDIV1] || !pllcfg[POSTDIV2]) {
 		/* Bypass mode */
 		io_setbits32(pllxcfgr4, RCC_PLLxCFGR4_BYPASS);
 		io_clrbits32(pllxcfgr4, RCC_PLLxCFGR4_FOUTPOSTDIVEN);
@@ -1489,7 +1487,7 @@ static void clk_stm32_pll_config_csg(struct clk_stm32_priv *priv,
 			SHIFT_U32(csg[SPREAD], RCC_PLLxCFGR5_SPREAD_SHIFT) &
 			RCC_PLLxCFGR5_SPREAD_MASK);
 
-	if (csg[DOWNSPREAD] != 0)
+	if (csg[DOWNSPREAD])
 		io_setbits32(pllxcfgr3, RCC_PLLxCFGR3_DOWNSPREAD);
 	else
 		io_clrbits32(pllxcfgr3, RCC_PLLxCFGR3_DOWNSPREAD);
@@ -1554,7 +1552,7 @@ static int clk_stm32_pll1_init(struct clk_stm32_priv *priv,
 	else
 		ret = clk_stm32_pll_check_mux(priv, pll_conf->src);
 
-	if (ret != 0)
+	if (ret)
 		panic();
 
 	refclk = clk_stm32_pll_get_oscillator_rate(sel);
@@ -1600,7 +1598,7 @@ static int clk_stm32_pll_init(struct clk_stm32_priv *priv, int pll_idx,
 					  pll_conf->src,
 					  pll_conf->cfg,
 					  pll_conf->frac);
-	if (ret != 0)
+	if (ret)
 		panic();
 
 	if (pll_conf->csg_enabled) {
@@ -1758,26 +1756,26 @@ static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
 {
 	uintptr_t rcc_base = stm32_rcc_base();
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_PREDIV0CFGR + (0x4 * channel),
 			RCC_PREDIV0CFGR_PREDIV0_MASK, prediv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
 			RCC_FINDIV0CFGR_FINDIV0_MASK,
 			findiv);
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
-	if (wait_xbar_sts(channel) != 0)
+	if (wait_xbar_sts(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_XBAR0CFGR + (0x4 * channel),
@@ -1787,7 +1785,7 @@ static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
 	io_setbits32(rcc_base + RCC_XBAR0CFGR + (0x4 * channel),
 		     RCC_XBAR0CFGR_XBAR0EN);
 
-	if (wait_xbar_sts(channel) != 0)
+	if (wait_xbar_sts(channel))
 		panic();
 }
 
@@ -1945,7 +1943,7 @@ static int stm32_clk_bus_configure(struct clk_stm32_priv *priv)
 		int ret = 0;
 
 		ret = stm32_clk_configure(priv, pdata->busclk[i]);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 
@@ -1961,7 +1959,7 @@ static int stm32_clk_kernel_configure(struct clk_stm32_priv *priv)
 		int ret = 0;
 
 		ret = stm32_clk_configure(priv, pdata->kernelclk[i]);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 
@@ -2129,7 +2127,7 @@ static unsigned long clk_stm32_pll1_get_rate(struct clk *clk __unused,
 	postdiv2 = (reg & A35SS_SSC_PLL_FREQ2_POSTDIV2_MASK) >>
 		   A35SS_SSC_PLL_FREQ2_POSTDIV2_SHIFT;
 
-	if (postdiv1 == 0 || postdiv2 == 0)
+	if (!postdiv1 || !postdiv2)
 		dfout = prate;
 	else
 		dfout = clk_get_pll1_fvco_rate(prate) / (postdiv1 * postdiv2);
@@ -2323,7 +2321,7 @@ static unsigned long clk_stm32_flexgen_get_rate(struct clk *clk __unused,
 	findiv = io_read32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel)) &
 		RCC_FINDIV0CFGR_FINDIV0_MASK;
 
-	if (freq == 0)
+	if (!freq)
 		return 0;
 
 	switch (prediv) {
@@ -2377,7 +2375,7 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
 		freq = UDIV_ROUND_NEAREST((uint64_t)prate, pre_div[i]);
 		ratio = UDIV_ROUND_NEAREST((uint64_t)freq, rate);
 
-		if (ratio == 0)
+		if (!ratio)
 			ratio = 1;
 		else if (ratio > FLEXGEN_FINDIV_MAX)
 			ratio = FLEXGEN_FINDIV_MAX;
@@ -2393,7 +2391,7 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
 			*prediv = pre_val[i];
 			*findiv = ratio - 1;
 
-			if (diff == 0)
+			if (!diff)
 				break;
 		}
 	}
@@ -2416,24 +2414,24 @@ static TEE_Result clk_stm32_flexgen_set_rate(struct clk *clk,
 
 	clk_stm32_flexgen_get_round_rate(rate, parent_rate, &prediv, &findiv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_PREDIV0CFGR + (0x4 * channel),
 			RCC_PREDIV0CFGR_PREDIV0_MASK,
 			prediv);
 
-	if (wait_predivsr(channel) != 0)
+	if (wait_predivsr(channel))
 		panic();
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	io_clrsetbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
 			RCC_FINDIV0CFGR_FINDIV0_MASK,
 			findiv);
 
-	if (wait_findivsr(channel) != 0)
+	if (wait_findivsr(channel))
 		panic();
 
 	return TEE_SUCCESS;
@@ -2523,7 +2521,7 @@ static unsigned long ck_timer_get_rate_ops(struct clk *clk, unsigned long prate)
 
 	timpre = io_read32(rcc_base + cfg->timpre) & TIM_PRE_MASK;
 
-	if (prescaler == 0)
+	if (!prescaler)
 		return prate;
 
 	return prate * (timpre + 1) * 2;
